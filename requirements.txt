@@ -1,5 +1,7 @@
 Quart>=0.10.0
 aiohttp
 aiofiles
-pyjwt
+aioredis
+pyjwt>=2.0.0
 python-jose[cryptography]
+quart-session
