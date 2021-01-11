@@ -208,7 +208,7 @@ class OpenID(object):
                 expiry=self._config_cache_time)
         return doc
 
-    async def fetch_pubkeys(self, url: str) -> None:
+    async def fetch_pubkeys(self, url: str) -> List[dict]:
         """
         :param url: the URL to the OpenID pubkey configuration file
         :return: list of pubkeys
@@ -320,6 +320,21 @@ class OpenID(object):
         if not access_token:
             self.app.logger.error(f"Access token not in response for {url}")
             raise Exception("unknown error, check logs")
+
+        # verify jwt header
+        access_token_header = jwt.get_unverified_header(access_token)
+        for expect in ["kid", "alg"]:
+            if expect not in access_token_header:
+                raise Exception(f"Invalid JWT header for token {access_token}")
+
+        # verify we actually have the key id
+        key_id = access_token_header['kid']
+        if key_id not in self._get_keyids:
+            # unknown kid, attempt to refresh OIDC keys
+            keys = await self.fetch_pubkeys(self._openid_configuration['jwks_uri'])
+            if not keys or key_id not in [k['kid'] for k in keys]:
+                raise Exception("Could not validate token; unknown kid")
+            self._openid_keys = keys
 
         if self._nonce:
             nonce = session.get(self._nonce_session_key)
@@ -438,6 +453,10 @@ class OpenID(object):
     @property
     def _jwks_cache_key(self):
         return f"openid_jwks_cache_{self.client_id}"
+
+    @property
+    def _get_keyids(self):
+        return [k['kid'] for k in self._openid_keys]
 
     @decorator_parametrized
     def after_token(self, view_func, *args, **kwargs):
