@@ -81,6 +81,7 @@ class OpenID(object):
             use this parameter **instead of** supplying `configuration` - the configuration
             URL will be automatically generated using the supplied Tenant ID.
         :param key_rotation_interval: Fetch cert from OIDC every X seconds. Defaults to 1 hour
+            https://stackoverflow.com/questions/58330545/azure-active-directory-jwt-public-key-changing
         """
         self.app: Quart = app
 
@@ -112,6 +113,7 @@ class OpenID(object):
         self._openid_configuration: dict = {}
         self._openid_keys: dict = None
         self._openid_keys_rotate: int = key_rotation_interval
+        self._openid_keys_task: asyncio.Task = None
 
         self._cache = None
 
@@ -154,7 +156,7 @@ class OpenID(object):
 
             # fetch key
             self._openid_keys = await self.fetch_pubkeys(self._openid_configuration["jwks_uri"])
-            asyncio.create_task(self.fetch_pubkey_loop())
+            self._openid_keys_task = asyncio.create_task(self.fetch_pubkey_loop())
 
             # internal route handlers
             app.logger.debug(f"OpenID login URL: {self._route_login_uri}")
@@ -162,6 +164,12 @@ class OpenID(object):
 
             app.logger.debug(f"OpenID auth URL: {self._route_auth_uri}")
             app.add_url_rule(self._route_auth_uri, self.endpoint_name_auth, view_func=self.auth)
+
+        @app.after_serving
+        async def teardown():
+            if self._openid_keys_task:
+                if not self._openid_keys_task.cancelled():
+                    self._openid_keys_task.cancel()
 
     def init_app(self, app: Quart) -> None:
         try:
