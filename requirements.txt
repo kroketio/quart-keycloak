@@ -1,5 +1,4 @@
 Quart>=0.10.0
-msal
 aiohttp
 aiofiles
 pyjwt

@@ -1,5 +1,5 @@
 """
-Quart-OpenID
+Quart-Session-OpenID
 -------------
 Adds OpenID Connect support to your Quart application.
 """
@@ -12,15 +12,15 @@ with open('README.md') as f:
 INSTALL_REQUIRES = open("requirements.txt").read().splitlines()
 
 setup(
-    name='Quart-OpenID-Session',
+    name='Quart-Session-OpenID',
     version='1.0.0',
-    url='https://github.com/sferdi0/quart-openid-session',
+    url='https://github.com/sferdi0/quart-session-openid',
     author='Sander',
     author_email='sander@sanderf.nl',
     description='Add identity providers to your Quart application',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    packages=['quart_openid'],
+    packages=['quart_session_openid'],
     zip_safe=False,
     include_package_data=True,
     platforms='any',
@@ -34,6 +34,7 @@ setup(
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "License :: OSI Approved :: BSD-3-Clause",
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
         'Topic :: Software Development :: Libraries :: Python Modules'
     ]
