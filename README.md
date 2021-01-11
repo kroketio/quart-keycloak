@@ -110,6 +110,23 @@ async def api_products_get():
     return jsonify(products)
 ```
 
+## Example: Controlling scopes
+
+For user registration/login you might only need to
+read the user profile for the username and email. Later in the
+application you might require more access from the user. For this
+reason, you may override the scopes to generate a custom login route.
+
+```python3
+@app.route("/login/custom")
+async def login_custom():
+    scopes = ["Team.ReadBasic.All", "user.read", "openid",
+              "offline_access", "email", "profile"]
+    return openid_microsoft.login(scopes=scopes)
+```
+
+This is useful to progressively ask the user for consent throughout the web application.
+
 ## Multiple OIDC providers
 
 You may create multiple `OpenID(app, **settings)` instances, allowing for

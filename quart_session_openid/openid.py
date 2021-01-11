@@ -245,8 +245,23 @@ class OpenID(object):
             except Exception as ex:
                 self.app.logger.error(f"Key rotate failure; {ex}")
 
-    def login(self):
-        """Generate login URL and redirect user to OIC login page."""
+    def login(self, scopes=None) -> redirect:
+        """
+        Generate login URL and redirect user to OIC login page.
+        :param scopes: An alternative List[str] of scopes, which allows
+            you to initiate a login for access_token's that have specific
+            scope(s). This is useful to "progressively" ask the user for consent
+            throughout the web application, i.e: upon login you might only need
+            to read the user profile for the username and email, and later in the
+            application you require more access from the user. The user will be
+            redirected to the OIDC provider, which will ask for additional consent.
+
+            @app.route("/login/custom")
+            async def login_custom():
+                scopes = ["Team.ReadBasic.All", "user.read", "openid",
+                          "offline_access", "email", "profile"]
+                return openid_microsoft.login(scopes=scopes)
+        """
         if not self.client_secret:
             raise Exception("client_secret required to initiate confidential flow.")
         if not self._fn_after_token:
@@ -259,7 +274,7 @@ class OpenID(object):
             session[self._nonce_session_key] = nonce
 
         url_auth = self._openid_configuration["authorization_endpoint"]
-        scopes = ' '.join(self.scopes)
+        scopes = ' '.join(scopes if scopes else self.scopes)
 
         url = f"{url_auth}?" \
               f"client_id={self.client_id}&" \
