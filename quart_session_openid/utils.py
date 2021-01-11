@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+    Adds OpenID Connect support to your Quart application.
+    :copyright: (c) 2021 by Sander.
+    :license: BSD, see LICENSE for more details.
+"""
+
+
 def decorator_parametrized(dec):
     def layer(*args, **kwargs):
         def repl(view_func):

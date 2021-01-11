@@ -1,9 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+    Adds OpenID Connect support to your Quart application.
+    :copyright: (c) 2021 by Sander.
+    :license: BSD, see LICENSE for more details.
+"""
 import os
-import sys
 import asyncio
 import uuid
 import json
-from base64 import b64decode
 from urllib.parse import urlparse
 from typing import Optional, Coroutine, Any, Callable, Awaitable, List, Union
 

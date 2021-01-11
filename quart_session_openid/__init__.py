@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-    quart_session_openid
-    ~~~~~~~~~~~~~
-
     Adds OpenID Connect support to your Quart application.
-
-    :copyright: (c) 2020 by Sander
+    :copyright: (c) 2021 by Sander.
+    :license: BSD, see LICENSE for more details.
 """
-
 __version__ = '1.0.0'
 
 
