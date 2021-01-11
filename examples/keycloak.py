@@ -4,6 +4,11 @@ external OIDC provider for authentication. The user is redirected to
 this OIDC's login page and redirected back to the Quart application,
 which after determining/verifying the access token can decide to
 consider the user logged in.
+
+1) Log into the Keycloak admin panel: /auth/admin
+2) Add a new client (application)
+3) Set the correct (redirect) URLs
+4) Get the client_id and client_secret
 """
 
 from quart import Quart, url_for, jsonify

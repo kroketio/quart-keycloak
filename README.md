@@ -2,7 +2,7 @@
 
 Adds OpenID Connect support to your Quart application.
 
-Supports for the following OAuth2 flows:
+Supports the following OAuth2 flows:
 
 - Confidential - Authorization code flow
 - Public - Implicit grant (SPA: VueJS, Angular, React, etc)
@@ -39,11 +39,15 @@ openid_keycloak = OpenID(app, **openid_keycloak_config)
 
 @openid_keycloak.after_token()
 async def handle_user_login(resp: dict):
-    # important: verify access_token, and decode
-    access_token = openid_keycloak.verify_token(resp["access_token"])
+    # incoming token(s) are *NOT* validated, it is *imperative*
+    # that you validate the signature like this:
+    access_token_decoded = openid_keycloak.verify_token(resp["access_token"])
 
     # @TO-DO: mark the user as "logged in" - do some database stuff, etc.
-    return jsonify(access_token)
+
+    # optionally call the userinfo endpoint
+    user = await openid_keycloak.user_info(access_token)
+    return jsonify(user)
 
 
 @app.route("/")
