@@ -72,45 +72,12 @@ See `examples/azure_ad_v2.py` for an example.
 
 ## Example 3: Implicit grant
 
-For the implicit grant (single page applications), Javascript is responsible
+For the implicit grant flow (single page applications), Javascript is responsible
 for authentication against a OIDC in order to fetch access/refresh tokens
-that it presents to the backend (Quart).
+that it presents to the backend (Quart) via a Bearer token. The backend needs to
+verify incoming Bearer tokens. See `examples/implicit_grant.py` for an example.
 
-The backend needs to verify incoming Bearer tokens. You can use
-`OpenID.verify_token()` for that.
-
-Example decorator:
-
-```python3
-from functools import wraps
-from quart import abort, current_app, g
-
-
-def verify_access_token(func):
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        auth = request.authorization
-        if not auth.startswith("Bearer "):
-            abort(401)
-        token = auth.split(" ", 1)[0]
-        try:
-            g.jwt = openid_keycloak.verify_token(token=token, audience="account")
-        except:
-            abort(401)
-
-        return await func(*args, **kwargs)
-    return wrapper
-
-@verify_access_token
-@app.route("/api/2/products/")
-async def api_products_get():
-    print(g.jwt)
-
-    products = ["foo", "bar"]
-    return jsonify(products)
-```
-
-## Example: Controlling scopes
+## Custom scopes
 
 For user registration/login you might only need to
 read the user profile for the username and email. Later in the

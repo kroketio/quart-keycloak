@@ -17,7 +17,7 @@ Session(app)
 
 # See Azure AD admin panel for more Graph API permissions,
 # for example the scopes could be:
-# ["user.read", "offline_access", "email", "profile", "openid"]
+# ["Team.ReadBasic.All", "user.read", "offline_access", "email", "profile", "openid"]
 
 openid_microsoft_config = {
     "client_id": "dec28b22-11bc-4444-66d7-a355ebeb02e6",
