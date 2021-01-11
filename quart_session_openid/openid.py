@@ -1,6 +1,7 @@
 import os
 import sys
 import asyncio
+import uuid
 import json
 from base64 import b64decode
 from urllib.parse import urlparse
@@ -9,7 +10,7 @@ from typing import Optional, Coroutine, Any, Callable, Awaitable, List, Union
 import jwt
 import aiofiles
 from jose import jwt as jose_jwt
-from quart import Quart, request, url_for, redirect, session, Response
+from quart import Quart, request, url_for, redirect, session, Response, session
 
 from quart_session_openid import DEFAULT_AUDIENCE, PROVIDER_KEYCLOAK, PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2
 from quart_session_openid.utils import decorator_parametrized, AzureResource
@@ -98,19 +99,14 @@ class OpenID(object):
 
         if provider == PROVIDER_AZURE_AD_V1:
             raise Exception("Azure AD v1 not supported, use v2")
-
-        if provider != PROVIDER_AZURE_AD_V2 and not configuration:
-            raise Exception("Please specify the URL or filepath to OIDC configuration")
-        if provider == PROVIDER_AZURE_AD_V2 and not configuration:
+        elif provider == PROVIDER_AZURE_AD_V2:
             if not azure_tenant_id:
-                raise Exception("Please specify the Azure tenant ID through parameter "
-                                "`azure_tenant_id`")
-            url = f"https://login.microsoftonline.com/{self._azure_tenant_id}/"
-            url += 'v2.0/' if provider == PROVIDER_AZURE_AD_V2 else ''
-            url += '.well-known/openid-configuration'
+                raise Exception("Please specify the Azure tenant ID through parameter `azure_tenant_id`")
+            url = f"https://login.microsoftonline.com/{self._azure_tenant_id}/v2.0/.well-known/openid-configuration"
             self._openid_configuration_url = f"{url}"
         else:
             self._openid_configuration_url = configuration
+
         self.provider = provider
 
         self._openid_configuration: dict = {}
@@ -127,6 +123,9 @@ class OpenID(object):
         self._user_agent: str = user_agent
         self._timeout_connect: int = timeout_connect
         self._timeout_read: int = timeout_read
+
+        self._nonce_session_key = "_quart_session_openid_nonce"
+        self._nonce = self.provider in [PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2]
 
         self._fn_after_token = None
 
@@ -246,6 +245,11 @@ class OpenID(object):
             raise Exception("`@openid.after_token()` callback missing, please "
                             "define a token handler.")
 
+        nonce = None
+        if self._nonce:
+            nonce = uuid.uuid4().hex
+            session[self._nonce_session_key] = nonce
+
         url_auth = self._openid_configuration["authorization_endpoint"]
         scopes = ' '.join(self.scopes)
 
@@ -253,6 +257,9 @@ class OpenID(object):
               f"client_id={self.client_id}&" \
               f"redirect_uri={self.redirect_uri}&" \
               f"response_type=code"
+
+        if nonce:
+            url += f"&nonce={nonce}"
 
         if self.provider == PROVIDER_KEYCLOAK:
             # for some reason Keycloak does not accept multiple
@@ -305,6 +312,17 @@ class OpenID(object):
         if not access_token:
             self.app.logger.error(f"Access token not in response for {url}")
             raise Exception("unknown error, check logs")
+
+        if self._nonce:
+            nonce = session.get(self._nonce_session_key)
+            for token in [v for k, v in resp.items() if k.endswith("_token")]:
+                token_decoded = jwt.decode(token, verify=False)
+                if "nonce" not in token_decoded:
+                    raise Exception(f"Missing nonce in {token}")
+                if token_decoded['nonce'] != nonce:
+                    raise Exception("Bad nonce")
+            session.pop(self._nonce_session_key)
+
         return await self._fn_after_token(resp)
 
     async def user_info(self, access_token):
