@@ -125,7 +125,7 @@ class OpenID(object):
         self._timeout_read: int = timeout_read
 
         self._nonce_session_key = "_quart_session_openid_nonce"
-        self._nonce = self.provider in [PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2]
+        self._nonce = self.provider not in [PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2]
 
         self._fn_after_token = None
 
@@ -316,7 +316,7 @@ class OpenID(object):
         if self._nonce:
             nonce = session.get(self._nonce_session_key)
             for token in [v for k, v in resp.items() if k.endswith("_token")]:
-                token_decoded = jwt.decode(token, verify=False)
+                token_decoded = OpenID.decode_token(token)
                 if "nonce" not in token_decoded:
                     raise Exception(f"Missing nonce in {token}")
                 if token_decoded['nonce'] != nonce:
@@ -387,6 +387,11 @@ class OpenID(object):
             msg = f"Invalid payload for token: {token} - {ex}"
             self.app.logger.error(msg)
             raise
+
+    @staticmethod
+    def decode_token(token: str):
+        """Return data inside JWT - important: does *not* verify the token"""
+        return jwt.decode(token, options={"verify_signature": False})
 
     @property
     def base_url(self):

@@ -13,7 +13,7 @@ unless specified otherwise. Known working OIDC providers:
 - Keycloak
 - Azure AD Connect 2.0
 
-[quart-session](https://github.com/sferdi0/quart-session) is a requirement - used for it's session management capabilities via Redis et. al.
+[quart-session](https://github.com/sferdi0/quart-session) is a requirement - used for its session management capabilities via Redis et. al.
 
 # Example
 
