@@ -11,6 +11,7 @@ import json
 from urllib.parse import urlparse
 from typing import Optional, Coroutine, Any, Callable, Awaitable, List, Union
 
+from packaging import version
 import jwt
 import aiofiles
 from jose import jwt as jose_jwt
@@ -18,6 +19,8 @@ from quart import Quart, request, url_for, redirect, session, Response, session
 
 from quart_session_openid import DEFAULT_AUDIENCE, PROVIDER_KEYCLOAK, PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2
 from quart_session_openid.utils import decorator_parametrized, AzureResource
+
+JWT_LEGACY = version.parse(jwt.__version__) < version.parse("2.0.0")
 
 
 class OpenID(object):
@@ -433,6 +436,8 @@ class OpenID(object):
     @staticmethod
     def decode_token(token: str):
         """Return data inside JWT - important: does *not* verify the token"""
+        if JWT_LEGACY:
+            return jwt.decode(token, verify=False)
         return jwt.decode(token, options={"verify_signature": False})
 
     @property
