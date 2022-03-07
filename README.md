@@ -13,11 +13,14 @@ unless specified otherwise. Known working OIDC providers:
 - Keycloak
 - Azure AD Connect 2.0
 
-[quart-session](https://github.com/sferdi0/quart-session) is a requirement - used for its session management capabilities via Redis et. al.
+## Quick start
 
-# Example
+```text
+$ pipenv install quart-session-openid
+$ pip install quart-session-openid
+```
 
-Minimal example to login via external OIDC provider (Keycloak).
+Minimal example to authenticate via an external OIDC provider, Keycloak in this case:
 
 ```python3
 from quart import Quart, url_for, jsonify
@@ -43,7 +46,7 @@ async def handle_user_login(resp: dict):
     # that you validate the signature like this:
     access_token_decoded = openid_keycloak.verify_token(resp["access_token"])
 
-    # @TO-DO: mark the user as "logged in" - do some database stuff, etc.
+    # do some database and session stuff here (like add user to the database)
 
     # optionally call the userinfo endpoint
     user = await openid_keycloak.user_info(access_token)
