@@ -2,6 +2,7 @@ include LICENSE
 include CHANGELOG.md
 include README.md
 include setup.cfg
+include requirements.txt
 recursive-include quart_openid *.py
 recursive-include quart_openid *.md
 exclude .gitlab-ci.yml
