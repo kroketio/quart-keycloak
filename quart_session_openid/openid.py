@@ -198,7 +198,8 @@ class OpenID(object):
         if use_cache:
             doc = await self._cache.get(key=self._config_cache_key)
             if doc:
-                return json.loads(doc)
+                blob = json.loads(doc)
+                return blob['keys']
 
         try:
             doc = await self.json_get(url)

@@ -4,7 +4,7 @@
     :copyright: (c) 2021 by Sander.
     :license: BSD, see LICENSE for more details.
 """
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 
 
 DEFAULT_AUDIENCE = "account"  # Keycloak default

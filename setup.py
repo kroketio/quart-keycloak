@@ -13,7 +13,7 @@ INSTALL_REQUIRES = open("requirements.txt").read().splitlines()
 
 setup(
     name='Quart-Session-OpenID',
-    version='1.0.1',
+    version='1.0.2',
     url='https://github.com/sanderfoobar/quart-session-openid',
     author='Sander',
     author_email='sander@sanderf.nl',
