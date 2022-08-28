@@ -6,3 +6,4 @@ pyjwt
 python-jose[cryptography]
 quart-session
 packaging
+pydantic

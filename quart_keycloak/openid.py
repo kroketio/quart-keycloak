@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-    Adds OpenID Connect support to your Quart application.
-    :copyright: (c) 2021 by Sander.
+    Add Keycloak OpenID Connect to your Quart application.
+    :copyright: (c) 2022 Kroket Ltd. (https://kroket.io).
     :license: BSD, see LICENSE for more details.
 """
 import os
@@ -11,34 +11,26 @@ import json
 from urllib.parse import urlparse
 from typing import Optional, Coroutine, Any, Callable, Awaitable, List, Union
 
+from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 from packaging import version
 import jwt
+import aiohttp
 import aiofiles
 from jose import jwt as jose_jwt
-from quart import Quart, request, url_for, redirect, session, Response, session
+from werkzeug.wrappers import Response as WerkzeugResponse
+from quart import Quart, request, url_for, redirect, session, Response, session, jsonify
 
-from quart_session_openid import DEFAULT_AUDIENCE, PROVIDER_KEYCLOAK, PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2
-from quart_session_openid.utils import decorator_parametrized, AzureResource
+from quart_keycloak import DEFAULT_AUDIENCE
+from quart_keycloak.utils import decorator_parametrized
 
 JWT_LEGACY = version.parse(jwt.__version__) < version.parse("2.0.0")
 
 
-class OpenID(object):
-    """This class is used to add OpenID Connect to one or more Quart
-    applications.
+class Keycloak(object):
+    """A OIDC confidential client.
 
-        from quart import Quart, url_for, jsonify
-        from quart_session_openid import OpenID
-        from quart_session import Session
-
-        app = Quart(__name__)
-        app.config['SESSION_TYPE'] = 'redis'
-        Session(app)
-
-        app = Quart(__name__)
-        OpenID(app, client_id=...)
-
-    You may add multiple `OpenID` instances to your Quart app. When you do,
+    You may use multiple instances of Keycloak in your Quart app. When you do,
     provide a custom `route_login` and `route_auth` to prevent route overlap.
     """
     def __init__(self,
@@ -46,16 +38,17 @@ class OpenID(object):
                  client_id: str,
                  client_secret: str,
                  configuration: str = None,
-                 provider: int = PROVIDER_KEYCLOAK,
-                 audience: Union[str, AzureResource] = DEFAULT_AUDIENCE,
                  configuration_cache: int = 0,
                  timeout_connect: int = 3,
                  timeout_read: int = 3,
                  scopes: List[str] = None,
                  route_login: str = "/openid/login",
                  route_auth: str = "/openid/auth",
-                 user_agent: str = "Quart-OpenID",
-                 azure_tenant_id: str = None,
+                 route_logout: str = "/openid/logout",
+                 route_backchannel_logout: str = "/openid/backchannel_logout",
+                 user_agent: str = "Quart-Keycloak",
+                 validate_auth_token: bool = True,
+                 audience: Union[str] = DEFAULT_AUDIENCE,
                  key_rotation_interval: int = 3600) -> None:
         """
         :param app: Quart app instance
@@ -67,11 +60,7 @@ class OpenID(object):
             ends with "/.well-known/openid-configuration". Alternatively, you may
             provide an absolute path to the configuration JSON document on your filesystem.
         :param configuration_cache: Cache the configuration page, useful in development.
-        :param provider: The "type" of OIDC "flavor" to use, since there are small
-            implementation differences between the various OIDC providers (sigh).
-            By default it's set to a mode that works well with Keycloak.
-            See `quart_openid/__init__.py` for the possible options.
-        :param audience: Specifies for **whom** (which application) the token is intended.
+        :param audience: Specifies for **whom** (which client) the token is intended.
             See https://tools.ietf.org/html/rfc7519#section-4.1.3
         :param scopes: List of scopes, by default set to openid, profile, email.
             A scope grants access to a set of "claims", usually embedded inside an
@@ -79,14 +68,15 @@ class OpenID(object):
         :param route_login: The login URL route for this Quart application. You can
             provide your own when you have multiple OpenID instances that would
             otherwise overlap, or simply prefer a customized name.
+        :param route_logout: The logout URL route, will redirect
+            to `end_session_endpoint` which ends the session.
+            - https://stackoverflow.com/a/66240470
+            - https://keycloak.discourse.group/t/oidc-backchannel-logout-single-logout-with-spring-security/8761/3
         :param route_auth: The auth URL route for this Quart application. Visitors redirect
             to this route after completing authentication over at the OIDC provider.
         :param timeout_connect: HTTP connect timeout when communicating with OIDC provider.
         :param timeout_read: HTTP read timeout when communicating with OIDC provider.
         :param user_agent: The HTTP User-Agent request header to use.
-        :param azure_tenant_id: If you're using v2.0 of Azure AD Connect, you may
-            use this parameter **instead of** supplying `configuration` - the configuration
-            URL will be automatically generated using the supplied Tenant ID.
         :param key_rotation_interval: Fetch cert from OIDC every X seconds. Defaults to 1 hour
             https://stackoverflow.com/questions/58330545/azure-active-directory-jwt-public-key-changing
         """
@@ -99,44 +89,34 @@ class OpenID(object):
         if scopes:
             self.scopes = scopes
 
-        if isinstance(audience, AzureResource):
-            audience = audience.app_id
         self._audience: str = audience
+        self._openid_configuration_url = configuration
 
-        self._azure_tenant_id = azure_tenant_id
-
-        if provider == PROVIDER_AZURE_AD_V1:
-            raise Exception("Azure AD v1 not supported, use v2")
-        elif provider == PROVIDER_AZURE_AD_V2:
-            if not azure_tenant_id:
-                raise Exception("Please specify the Azure tenant ID through parameter `azure_tenant_id`")
-            url = f"https://login.microsoftonline.com/{self._azure_tenant_id}/v2.0/.well-known/openid-configuration"
-            self._openid_configuration_url = f"{url}"
-        else:
-            self._openid_configuration_url = configuration
-
-        self.provider = provider
+        self._validate_auth_token: bool = validate_auth_token
 
         self._openid_configuration: dict = {}
-        self._openid_keys: dict = None
+        self._openid_keys: dict = {}
         self._openid_keys_rotate: int = key_rotation_interval
-        self._openid_keys_task: asyncio.Task = None
+        self._openid_keys_task: Optional[asyncio.Task] = None
 
-        self._cache = None
+        self._cache = app.session_interface
 
         self._config_cache_time: int = configuration_cache
 
         self._route_login_uri: str = route_login
+        self._route_logout_uri: str = route_logout
+        self._route_backchannel_logout_uri: str = route_backchannel_logout
         self._route_auth_uri: str = route_auth
 
         self._user_agent: str = user_agent
         self._timeout_connect: int = timeout_connect
         self._timeout_read: int = timeout_read
 
-        self._nonce_session_key = "_quart_session_openid_nonce"
-        self._nonce = self.provider not in [PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2]
+        self._nonce_session_key = "_quart_keycloak_openid_nonce"
+        self._nonce: bool = True
 
-        self._fn_after_token = None
+        self._fn_after_login = None
+        self._fn_after_backchannel_logout = None
 
         if not self.client_id:
             raise Exception("client_id not set")
@@ -147,9 +127,6 @@ class OpenID(object):
         if not self._openid_configuration_url.startswith("http"):
             if not os.path.exists(self._openid_configuration_url):
                 raise Exception(f"Local file path '{self._openid_configuration_url}' is non-existent")
-
-        if app is not None:
-            self.init_app(app)
 
         @app.before_serving
         async def setup():
@@ -172,22 +149,20 @@ class OpenID(object):
             app.logger.debug(f"OpenID auth URL: {self._route_auth_uri}")
             app.add_url_rule(self._route_auth_uri, self.endpoint_name_auth, view_func=self.auth)
 
+            app.logger.debug(f"OpenID logout URL: {self._route_logout_uri}")
+            app.add_url_rule(self._route_logout_uri, self.endpoint_name_logout, view_func=self.logout)
+
+            app.logger.debug(f"OpenID backchannel logout URL: {self._route_backchannel_logout_uri}")
+            app.add_url_rule(self._route_backchannel_logout_uri,
+                             self.endpoint_name_backchannel_logout,
+                             view_func=self.handle_logout_backchannel,
+                             methods=['POST'])
+
         @app.after_serving
         async def teardown():
             if self._openid_keys_task:
                 if not self._openid_keys_task.cancelled():
                     self._openid_keys_task.cancel()
-
-    def init_app(self, app: Quart) -> None:
-        try:
-            from quart_session.sessions import SessionInterface
-            if not isinstance(app.session_interface, SessionInterface):
-                raise Exception("Please setup quart-session before initializing quart-openid.")
-        except ImportError as ex:
-            raise Exception("quart-session missing; `pip install quart-session`")
-
-        self.app = app
-        self._cache = app.session_interface
 
     async def fetch_config(self, url: str) -> dict:
         """
@@ -202,6 +177,7 @@ class OpenID(object):
 
         try:
             doc = await self.json_get(url)
+            self.app.logger.debug(f"Config fetched from: {url}")
             if not doc:
                 raise Exception(f"empty document")
         except Exception as ex:
@@ -229,6 +205,7 @@ class OpenID(object):
 
         try:
             doc = await self.json_get(url)
+            self.app.logger.debug(f"Certs fetched from: {url}")
             if not doc:
                 raise Exception(f"empty document")
             if "keys" not in doc:
@@ -253,7 +230,7 @@ class OpenID(object):
             except Exception as ex:
                 self.app.logger.error(f"Key rotate failure; {ex}")
 
-    def login(self, scopes=None) -> redirect:
+    def login(self, scopes=None) -> WerkzeugResponse:
         """
         Generate login URL and redirect user to OIC login page.
         :param scopes: An alternative List[str] of scopes, which allows
@@ -266,14 +243,13 @@ class OpenID(object):
 
             @app.route("/login/custom")
             async def login_custom():
-                scopes = ["Team.ReadBasic.All", "user.read", "openid",
-                          "offline_access", "email", "profile"]
-                return openid_microsoft.login(scopes=scopes)
+                scopes = ["foo", "bar", "openid", "offline_access", "email", "profile"]
+                return keycloak.login(scopes=scopes)
         """
         if not self.client_secret:
             raise Exception("client_secret required to initiate confidential flow.")
-        if not self._fn_after_token:
-            raise Exception("`@openid.after_token()` callback missing, please "
+        if not self._fn_after_login:
+            raise Exception("`@keycloak.after_login()` callback missing, please "
                             "define a token handler.")
 
         nonce = None
@@ -282,7 +258,7 @@ class OpenID(object):
             session[self._nonce_session_key] = nonce
 
         url_auth = self._openid_configuration["authorization_endpoint"]
-        scopes = ' '.join(scopes if scopes else self.scopes)
+        scopes = '+'.join(scopes if scopes else self.scopes)
 
         url = f"{url_auth}?" \
               f"client_id={self.client_id}&" \
@@ -291,14 +267,7 @@ class OpenID(object):
 
         if nonce:
             url += f"&nonce={nonce}"
-
-        if self.provider == PROVIDER_KEYCLOAK:
-            # for some reason Keycloak does not accept multiple
-            # values for the `scope` GET arg. Instead we'll
-            # use `scopes`. confused.jpg
-            url += f"&scopes={scopes}"
-        else:
-            url += f"&scope={scopes}"
+        url += f"&scope={scopes}"
 
         self.app.logger.debug(f"login redirection to {url}")
         return redirect(url)
@@ -362,17 +331,100 @@ class OpenID(object):
         if self._nonce:
             nonce = session.get(self._nonce_session_key)
             for token in [v for k, v in resp.items() if k.endswith("_token")]:
-                token_decoded = OpenID.decode_token(token)
+                token_decoded = Keycloak.decode_token(token)
                 if "nonce" not in token_decoded:
                     raise Exception(f"Missing nonce in {token}")
                 if token_decoded['nonce'] != nonce:
                     raise Exception("Bad nonce")
             session.pop(self._nonce_session_key)
 
-        return await self._fn_after_token(resp)
+        if self._validate_auth_token:
+            self.verify_token(access_token)
 
-    async def user_info(self, access_token):
-        import aiohttp
+        token_model = KeycloakAuthToken(
+            access_token=access_token,
+            refresh_token=resp['refresh_token'],
+            id_token=resp['id_token'],
+            expires_in=resp['expires_in'],
+            refresh_expires_in=resp['refresh_expires_in'],
+            token_type=resp['token_type'],
+            session_state=resp.get('session_state'),
+            scope=resp.get('scope', '').split(' ')
+        )
+        return await self._fn_after_login(token_model)
+
+    async def logout(self) -> WerkzeugResponse:
+        """Front-channel logout
+        https://openid.net/specs/openid-connect-frontchannel-1_0.html#Introduction
+        """
+        if "end_session_endpoint" not in self._openid_configuration:
+            raise Exception("Could not find 'end_session_endpoint' in openid configuration. Could not log out.")
+        if "redirect_uri" not in request.args:
+            raise Exception("redirect_uri not in request.args")
+        redirect_uri = request.args['redirect_uri']
+
+        if "auth_token" not in session or not session["auth_token"]:
+            raise Exception("no session to logout")
+
+        state = request.args.get('state')
+        try:
+            auth_token = KeycloakAuthToken(**session['auth_token'])
+        except Exception as ex:
+            msg = f"redirect failed, bad session state - nuking auth_token session key."
+            session["auth_token"] = None
+            raise Exception(msg)
+
+        url = self._openid_configuration["end_session_endpoint"]
+        url = f"{url}?post_logout_redirect_uri={redirect_uri}&id_token_hint={auth_token.id_token}"
+        if state:
+            url += f"&state={state}"
+        return redirect(url)
+
+    async def logout2(self, access_token: str, refresh_token: str):
+        """Back-channel logout
+        https://openid.net/specs/openid-connect-backchannel-1_0.html#Introduction
+        Warning: this function is undocumented and untested, feel free to PR
+        """
+        if "end_session_endpoint" not in self._openid_configuration:
+            self.app.logger.error("Could not find 'end_session_endpoint' in openid configuration. Could not log out.")
+
+        url = self._openid_configuration["end_session_endpoint"]
+        self.app.logger.debug(f"sending POST for logout to {url}")
+
+        _headers = {
+            "User-Agent": self._user_agent,
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        data = {
+            "client_id": self.client_id,
+            "refresh_token": refresh_token
+        }
+
+        async with aiohttp.ClientSession(
+                headers=_headers,
+                conn_timeout=self._timeout_connect,
+                read_timeout=self._timeout_read) as session:
+            async with session.post(url, data=data) as resp:
+                return resp
+
+    async def handle_logout_backchannel(self) -> Response:
+        # handle incoming backchannel logout request from IdP
+        # https://openid.net/specs/openid-connect-backchannel-1_0.html
+        backchannel_logout_supported = self._openid_configuration.get('backchannel_logout_supported', False)
+        if not backchannel_logout_supported:
+            raise Exception("Backchannel logout is not supported")
+
+        data = await request.form
+        if "logout_token" not in data:
+            return Response("logout_token not in data")
+
+        data_decoded = self.verify_token(data.get('logout_token'), audience=self.client_id)
+        if self._fn_after_backchannel_logout:
+            return await self._fn_after_backchannel_logout(KeycloakBackChannelLogout(**data_decoded))
+        return Response("OK")
+
+    async def user_info(self, access_token: str):
         url = self._openid_configuration["userinfo_endpoint"]
         _headers = {
             "User-Agent": self._user_agent,
@@ -383,12 +435,11 @@ class OpenID(object):
                 conn_timeout=self._timeout_connect,
                 read_timeout=self._timeout_read) as session:
             async with session.get(url) as resp:
-                print("Status:", resp.status)
-                print("Content-type:", resp.headers.get('content-type'))
+                self.app.logger.debug(f"Status: {resp.status}")
+                self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
                 return await resp.json()
 
     async def json_get(self, url: str, token: str = None, raise_status: bool = True) -> dict:
-        import aiohttp
         _headers = {"User-Agent": self._user_agent}
         if token:
             _headers["Authorization"] = f"Bearer {token}"
@@ -403,7 +454,6 @@ class OpenID(object):
                 return await resp.json()
 
     async def json_post(self, url: str, token: str = None, data: dict = None, raise_status: bool = True, json: bool = True) -> dict:
-        import aiohttp
         _headers = {"User-Agent": self._user_agent}
         if token:
             _headers["Authorization"] = f"Bearer {token}"
@@ -418,7 +468,7 @@ class OpenID(object):
                     resp.raise_for_status()
                 return await resp.json()
 
-    def verify_token(self, token: str, algorithms: Union[List[str], str] = 'RS256', audience: str = 'account') -> dict:
+    def verify_token(self, token: str, algorithms: Union[List[str], str] = 'RS256', audience: str = DEFAULT_AUDIENCE) -> dict:
         """
         Verifies RS256 token with known pubkey(s)
         :param token: JWS
@@ -427,16 +477,15 @@ class OpenID(object):
         :return: the decoded/verified token
         """
         try:
-            payload = jose_jwt.decode(token, self._openid_keys, algorithms=algorithms, audience=audience)
-            return payload
+            return jose_jwt.decode(token, self._openid_keys, algorithms=algorithms, audience=audience)
         except Exception as ex:
             msg = f"Invalid payload for token: {token} - {ex}"
             self.app.logger.error(msg)
             raise
 
     @staticmethod
-    def decode_token(token: str):
-        """Return data inside JWT - important: does *not* verify the token"""
+    def decode_token(token: str) -> dict:
+        """Return data inside JWT"""
         if JWT_LEGACY:
             return jwt.decode(token, verify=False)
         return jwt.decode(token, options={"verify_signature": False})
@@ -463,17 +512,25 @@ class OpenID(object):
         """Endpoint names are dynamically generated using `client_id`, use this function if you
         want to use an endpoint in `quart.url_for`, e.g:
 
-            return redirect(url_for(openid.login_endpoint_name))
+            return redirect(url_for(keycloak.login_endpoint_name))
         """
-        return f"quart_openid_login_{self.client_id}"
+        return f"quart_keycloak_login_{self.client_id}"
 
     @property
     def endpoint_name_auth(self) -> str:
-        return f"quart_openid_auth_{self.client_id}"
+        return f"quart_keycloak_auth_{self.client_id}"
 
     @property
     def _config_cache_key(self):
         return f"openid_config_cache_{self.client_id}"
+
+    @property
+    def endpoint_name_backchannel_logout(self) -> str:
+        return f"quart_keycloak_backchannel_logout_{self.client_id}"
+
+    @property
+    def endpoint_name_logout(self) -> str:
+        return f"quart_keycloak_logout_{self.client_id}"
 
     @property
     def _jwks_cache_key(self):
@@ -484,9 +541,60 @@ class OpenID(object):
         return [k['kid'] for k in self._openid_keys]
 
     @decorator_parametrized
-    def after_token(self, view_func, *args, **kwargs):
-        self._fn_after_token = view_func
+    def after_login(self, view_func, *args, **kwargs):
+        self._fn_after_login = view_func
+
+    @decorator_parametrized
+    def after_backchannel_logout(self, view_func, *args, **kwargs):
+        self._fn_after_backchannel_logout = view_func
 
     async def _json_read(self, path: str):
         async with aiofiles.open(path, mode='r') as f:
             return json.loads(await f.read())
+
+
+@dataclass
+class KeycloakBackChannelLogout:
+    iat: str
+    jti: str
+    iss: str
+    aud: str
+    sub: str
+    typ: str
+    sid: str
+    events: dict
+
+    @property
+    def session_id(self):
+        return self.sid
+
+
+@dataclass
+class KeycloakAuthToken:
+    access_token: str
+    refresh_token: str
+    id_token: str
+
+    expires_in: int
+    refresh_expires_in: int
+    token_type: str
+    session_state: Optional[str]
+    scope: List[str]
+
+    @property
+    def access_token_d(self) -> dict:
+        if self.access_token:
+            return Keycloak.decode_token(self.access_token)
+        return {}
+
+    @property
+    def refresh_token_d(self) -> dict:
+        if self.refresh_token:
+            return Keycloak.decode_token(self.refresh_token)
+        return {}
+
+    @property
+    def id_token_d(self) -> dict:
+        if self.id_token:
+            return Keycloak.decode_token(self.id_token)
+        return {}

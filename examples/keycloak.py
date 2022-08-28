@@ -9,10 +9,11 @@ consider the user logged in.
 2) Add a new client (application)
 3) Set the correct (redirect) URLs
 4) Get the client_id and client_secret
+5) Modify `openid_keycloak_config` below
 """
 
 from quart import Quart, url_for, jsonify
-from quart_session_openid import OpenID
+from quart_keycloak import Keycloak
 from quart_session import Session
 
 app = Quart(__name__)
@@ -25,16 +26,12 @@ openid_keycloak_config = {
     "configuration": "https://example.com/auth/realms/master/.well-known/openid-configuration"
 }
 
-openid_keycloak = OpenID(app, **openid_keycloak_config)
+openid_keycloak = Keycloak(app, **openid_keycloak_config)
 
 
 @openid_keycloak.after_token()
 async def handle_user_login(resp: dict):
-    # important: verify access_token, and decode
-    access_token = openid_keycloak.verify_token(resp["access_token"])
-
-    # @TO-DO: mark the user as "logged in" - do some database stuff, etc.
-    return jsonify(access_token)
+    return jsonify(resp['access_token'])
 
 
 @app.route("/")

@@ -1,7 +1,7 @@
 """
-Quart-Session-OpenID
+Quart-Keycloak
 -------------
-Adds OpenID Connect support to your Quart application.
+Add Keycloak OpenID Connect to your Quart application.
 """
 from setuptools import setup
 
@@ -12,15 +12,15 @@ with open('README.md') as f:
 INSTALL_REQUIRES = open("requirements.txt").read().splitlines()
 
 setup(
-    name='Quart-Session-OpenID',
-    version='1.0.3',
-    url='https://github.com/sanderfoobar/quart-session-openid',
-    author='Sander',
-    author_email='sander@sanderf.nl',
-    description='Add identity providers to your Quart application',
+    name='Quart-Keycloak',
+    version='1.0.4',
+    url='https://github.com/kroketio/quart-keycloak',
+    author='Kroket Ltd.',
+    author_email='code@kroket.io',
+    description='Add Keycloak OpenID Connect to your Quart application',
     long_description=long_description,
     long_description_content_type='text/markdown',
-    packages=['quart_session_openid'],
+    packages=['quart_keycloak'],
     zip_safe=False,
     include_package_data=True,
     platforms='any',

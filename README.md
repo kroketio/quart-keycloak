@@ -1,104 +1,104 @@
-# Quart-Session-OpenID
+# Quart-Keycloak
 
-Adds OpenID Connect support to your Quart application.
+Add [Keycloak](https://www.keycloak.org/) OpenID Connect to your Quart application
 
-Supports the following OAuth2 flows:
-
-- Confidential - Authorization code flow
-- Public - Implicit grant (SPA: VueJS, Angular, React, etc)
-
-This extension assumes that the OIDC provider is [Keycloak](https://www.keycloak.org/),
-unless specified otherwise. Known working OIDC providers:
-
-- Keycloak
-- Azure AD Connect 2.0
+- [Quick start](#)
+- [Terminology](#)
+  - `OIDC`: OpenID Connect - A layer built on top of the OAuth 2.0 protocol
+  - `IdP`: The identity provider, also sometimes called `OP` (OpenID Provider). In our case; Keycloak.
+  - `Client`: the application that interacts with a `IdP` (Keycloak), in our case Quart. Sometimes also called `Relying Party`.
+  - Client Types: 
+    - `confidential` - Clients **capable** of maintaining the confidentiality of their credentials, so backend applications made in PHP, Perl, Python, etc. The example in "[Quick Start](#QuickStart) is an example of a confidential client.
+    - `public` - Clients **incapable** of maintaining the confidentiality of their credentials: VueJS, React, Angular. 
+  - `User Agent`: the end-user, often times 'the browser'.
+- [Logout](#)
+  - [](#)
+  - [RP-Initiated Logout](#)
+  - [Handling BackChannel Logout's](#)
+- [FAQ](#)
+  - [Multiple IdP's](#)
+  - [Using different IdP's](#)
 
 ## Quick start
 
 ```text
-$ pipenv install quart-session-openid
-$ pip install quart-session-openid
+$ pip install quart-keycloak
+or
+$ pipenv install quart-keycloak
 ```
 
-Minimal example to authenticate via an external OIDC provider, Keycloak in this case:
+Minimal example:
 
 ```python3
-from quart import Quart, url_for, jsonify
-from quart_session_openid import OpenID
+from quart import Quart, url_for, jsonify, session, redirect
 from quart_session import Session
+from quart_keycloak import Keycloak, KeycloakAuthToken, KeycloakBackChannelLogout
 
 app = Quart(__name__)
+app.secret_key = 'changeme'
 app.config['SESSION_TYPE'] = 'redis'
 Session(app)
 
 openid_keycloak_config = {
-    "client_id": "foobar",
-    "client_secret": "secret",
-    "configuration": "https://example.com/auth/realms/master/.well-known/openid-configuration"
+    "client_id": "",
+    "client_secret": "",
+    "configuration": "https://host/realms/master/.well-known/openid-configuration"
 }
 
-openid_keycloak = OpenID(app, **openid_keycloak_config)
+keycloak = Keycloak(app, **openid_keycloak_config)
 
 
-@openid_keycloak.after_token()
-async def handle_user_login(resp: dict):
-    # incoming token(s) are *NOT* validated, it is *imperative*
-    # that you validate the signature like this:
-    access_token_decoded = openid_keycloak.verify_token(resp["access_token"])
+@keycloak.after_login()
+async def handle_user_login(auth_token: KeycloakAuthToken):
+    # optionally call the userinfo endpoint for more info
+    user = await keycloak.user_info(auth_token.access_token)
 
-    # do some database and session stuff here (like add user to the database)
+    # set session
+    session['auth_token'] = auth_token
+    return redirect(url_for('root'))
 
-    # optionally call the userinfo endpoint
-    user = await openid_keycloak.user_info(access_token)
-    return jsonify(user)
+@app.route("/logout")
+async def logout():
+    # route that clears the session
+    session.clear()
+    return redirect(url_for('root'))
 
 
 @app.route("/")
 async def root():
-    login_url_keycloak = url_for(openid_keycloak.endpoint_name_login)
+    # redirect the user after logout
+    logout_url = url_for('logout', _external=True)
+
+    # the login URL
+    login_url_keycloak = url_for(keycloak.endpoint_name_login)
+
+    # the logout URL, `redirect_uri` is required. `state` is optional.
+    logout_url_keycloak = url_for(keycloak.endpoint_name_logout, redirect_uri=logout_url, state='bla')
 
     return f"""
-    Login via keycloak: <a href="{login_url_keycloak}">Login via Keycloak</href>
+    <b>token:</b> {session.get('auth_token')}<br><hr>
+    Login via keycloak: <a href="{login_url_keycloak}">Login via Keycloak</a><br>
+    Logout via keycloak: <a href="{logout_url_keycloak}">Logout via Keycloak</a>
     """
 
 
-app.run("localhost", port=4000, debug=True)
+app.run("localhost", port=2700, debug=True, use_reloader=False)
 ```
 
-## Example 2: Azure AD
+In the above example, [quart-session](https://github.com/kroketio/quart-session/) is 
+used to provide a session interface via Redis. You don't have to use this extension, however, 
+this is encouraged, as Quart's default is to save the session client-side which is more difficult to invalidate when you are using the OIDC feature [backchannel logout]().
 
-Azure AD supports OpenID Connect and as such anyone with a Microsoft
-Office 365 account (or otherwise an account in Azure AD) could login into
-your web application.
+## Terminology
 
-See `examples/azure_ad_v2.py` for an example.
 
-## Example 3: Implicit grant
+## How to handle logouts
 
-For the implicit grant flow (single page applications), Javascript is responsible
-for authentication against a OIDC in order to fetch access/refresh tokens
-that it presents to the backend (Quart) via a Bearer token. The backend needs to
-verify incoming Bearer tokens. See `examples/implicit_grant.py` for an example.
+## Backchannel logout
 
-## Custom scopes
-
-For user registration/login you might only need to
-read the user profile for the username and email. Later in the
-application you might require more access from the user. For this
-reason, you may override the scopes to generate a custom login route.
-
-```python3
-@app.route("/login/custom")
-async def login_custom():
-    scopes = ["Team.ReadBasic.All", "user.read", "openid",
-              "offline_access", "email", "profile"]
-    return openid_microsoft.login(scopes=scopes)
-```
-
-This is useful to progressively ask the user for consent throughout the web application.
 
 ## Multiple OIDC providers
 
-You may create multiple `OpenID(app, **settings)` instances, allowing for
+You may create multiple `Keycloak(app, **settings)` instances, allowing for
 multiple OIDC providers. Make sure to provide custom route handlers
 for the login and auth URL route (`route_login` and `route_auth`).
