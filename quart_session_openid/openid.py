@@ -15,6 +15,7 @@ from packaging import version
 import jwt
 import aiofiles
 from jose import jwt as jose_jwt
+from werkzeug.wrappers import Response as WerkzeugResponse
 from quart import Quart, request, url_for, redirect, session, Response, session
 
 from quart_session_openid import DEFAULT_AUDIENCE, PROVIDER_KEYCLOAK, PROVIDER_AZURE_AD_V1, PROVIDER_AZURE_AD_V2
@@ -54,6 +55,7 @@ class OpenID(object):
                  scopes: List[str] = None,
                  route_login: str = "/openid/login",
                  route_auth: str = "/openid/auth",
+                 route_logout: str = "/openid/logout",
                  user_agent: str = "Quart-OpenID",
                  azure_tenant_id: str = None,
                  key_rotation_interval: int = 3600) -> None:
@@ -69,7 +71,7 @@ class OpenID(object):
         :param configuration_cache: Cache the configuration page, useful in development.
         :param provider: The "type" of OIDC "flavor" to use, since there are small
             implementation differences between the various OIDC providers (sigh).
-            By default it's set to a mode that works well with Keycloak.
+            By default, it's set to a mode that works well with Keycloak.
             See `quart_openid/__init__.py` for the possible options.
         :param audience: Specifies for **whom** (which application) the token is intended.
             See https://tools.ietf.org/html/rfc7519#section-4.1.3
@@ -79,6 +81,10 @@ class OpenID(object):
         :param route_login: The login URL route for this Quart application. You can
             provide your own when you have multiple OpenID instances that would
             otherwise overlap, or simply prefer a customized name.
+        :param route_logout: The logout URL route, will redirect
+            to `end_session_endpoint` which ends the session.
+            - https://stackoverflow.com/a/66240470
+            - https://keycloak.discourse.group/t/oidc-backchannel-logout-single-logout-with-spring-security/8761/3
         :param route_auth: The auth URL route for this Quart application. Visitors redirect
             to this route after completing authentication over at the OIDC provider.
         :param timeout_connect: HTTP connect timeout when communicating with OIDC provider.
@@ -127,6 +133,7 @@ class OpenID(object):
         self._config_cache_time: int = configuration_cache
 
         self._route_login_uri: str = route_login
+        self._route_logout_uri: str = route_logout
         self._route_auth_uri: str = route_auth
 
         self._user_agent: str = user_agent
@@ -171,6 +178,9 @@ class OpenID(object):
 
             app.logger.debug(f"OpenID auth URL: {self._route_auth_uri}")
             app.add_url_rule(self._route_auth_uri, self.endpoint_name_auth, view_func=self.auth)
+
+            app.logger.debug(f"OpenID logout URL: {self._route_logout_uri}")
+            app.add_url_rule(self._route_logout_uri, self.endpoint_name_logout, view_func=self.logout)
 
         @app.after_serving
         async def teardown():
@@ -253,7 +263,7 @@ class OpenID(object):
             except Exception as ex:
                 self.app.logger.error(f"Key rotate failure; {ex}")
 
-    def login(self, scopes=None) -> redirect:
+    def login(self, scopes=None) -> WerkzeugResponse:
         """
         Generate login URL and redirect user to OIC login page.
         :param scopes: An alternative List[str] of scopes, which allows
@@ -282,7 +292,7 @@ class OpenID(object):
             session[self._nonce_session_key] = nonce
 
         url_auth = self._openid_configuration["authorization_endpoint"]
-        scopes = ' '.join(scopes if scopes else self.scopes)
+        scopes = '+'.join(scopes if scopes else self.scopes)
 
         url = f"{url_auth}?" \
               f"client_id={self.client_id}&" \
@@ -291,14 +301,7 @@ class OpenID(object):
 
         if nonce:
             url += f"&nonce={nonce}"
-
-        if self.provider == PROVIDER_KEYCLOAK:
-            # for some reason Keycloak does not accept multiple
-            # values for the `scope` GET arg. Instead we'll
-            # use `scopes`. confused.jpg
-            url += f"&scopes={scopes}"
-        else:
-            url += f"&scope={scopes}"
+        url += f"&scope={scopes}"
 
         self.app.logger.debug(f"login redirection to {url}")
         return redirect(url)
@@ -371,6 +374,42 @@ class OpenID(object):
 
         return await self._fn_after_token(resp)
 
+    async def logout(self, post_logout_redirect_uri: str, id_token: str) -> WerkzeugResponse:
+        if "end_session_endpoint" not in self._openid_configuration:
+            raise Exception("Could not find 'end_session_endpoint' in openid configuration. Could not log out.")
+        url = self._openid_configuration["end_session_endpoint"]
+        url = f"{url}?post_logout_redirect_uri={post_logout_redirect_uri}&id_token_hint={id_token}"
+        return redirect(url)
+
+    async def logout_via_api(self, access_token: str, refresh_token: str):
+        """Sends POST to log-out via API. This functionality is not actually tested
+        and may or may not work for Keycloak"""
+        import aiohttp
+
+        if "end_session_endpoint" not in self._openid_configuration:
+            self.app.logger.error("Could not find 'end_session_endpoint' in openid configuration. Could not log out.")
+
+        url = self._openid_configuration["end_session_endpoint"]
+        self.app.logger.debug(f"sending POST for logout to {url}")
+
+        _headers = {
+            "User-Agent": self._user_agent,
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        data = {
+            "client_id": self.client_id,
+            "refresh_token": refresh_token
+        }
+
+        async with aiohttp.ClientSession(
+                headers=_headers,
+                conn_timeout=self._timeout_connect,
+                read_timeout=self._timeout_read) as session:
+            async with session.post(url, data=data) as resp:
+                self.app.logger.debug(f"Status: {resp.status}")
+                self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
+
     async def user_info(self, access_token):
         import aiohttp
         url = self._openid_configuration["userinfo_endpoint"]
@@ -383,8 +422,8 @@ class OpenID(object):
                 conn_timeout=self._timeout_connect,
                 read_timeout=self._timeout_read) as session:
             async with session.get(url) as resp:
-                print("Status:", resp.status)
-                print("Content-type:", resp.headers.get('content-type'))
+                self.app.logger.debug(f"Status: {resp.status}")
+                self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
                 return await resp.json()
 
     async def json_get(self, url: str, token: str = None, raise_status: bool = True) -> dict:
@@ -474,6 +513,10 @@ class OpenID(object):
     @property
     def _config_cache_key(self):
         return f"openid_config_cache_{self.client_id}"
+
+    @property
+    def endpoint_name_logout(self) -> str:
+        return f"quart_openid_logout_{self.client_id}"
 
     @property
     def _jwks_cache_key(self):
