@@ -6,13 +6,13 @@ Add [Keycloak](https://www.keycloak.org/) (OpenID Connect) to your Quart applica
 
 - [Quick start](#quick-start)
 - [Compatibility](#compatibility)
-- [Session](#session)
+- [Session](#backend-sessions)
 - [Logout](#logout)
   - [Handling logout 'events'](#handling-logout-events)
-- [FAQ](#)
-  - [Multiple keycloaks](#)
+- [FAQ](#faq)
+  - [Multiple keycloaks](#multiple-keycloaks)
   - [Using different IdPs](#using-different-idps)
-  - [Will you support OIDC feature $x?](#will-you-support-oidc-featurex)
+  - [Will you support OIDC feature $x?](#will-you-support-oidc-feature-x)
   - [Common errors](#common-errors)
 - [Terminology](#terminology)
 
@@ -83,9 +83,9 @@ app.run("localhost", port=2700, debug=True, use_reloader=False)
 
 ## Compatibility
 
-This extension is developed on Keycloak version 19. If you have 
-Keycloak 18 or lower it may still work, but not guaranteed. Keycloak likes to change things 
-in-between versions - which makes it difficult to support everything.
+This extension is developed using Keycloak version 19. A lower version may still work 
+but is not guaranteed. Keycloak likes to change things in-between versions - which makes 
+it difficult to support everything.
 
 If you are running the ancient Keycloak 10 or below, you should be running in 'legacy' mode else some 
 features will not work properly.  To enable legacy mode, pass parameter `legacy=True` to the Keycloak constructor:
@@ -96,15 +96,15 @@ keycloak = Keycloak(app, legacy=True, client_id=...)
 
 Note that the OpenID config URL changed along the way:
 
-- Keycloak 10: `https://host.tld/auth/realms/master/.well-known/openid-configuration`
-- Keycloak 19: `https://host.tld/realms/master/.well-known/openid-configuration`
+- Keycloak 10: `https://example.com/auth/realms/master/.well-known/openid-configuration`
+- Keycloak 19: `https://example.com/realms/master/.well-known/openid-configuration`
 
 ## Backend Sessions
 
 In the [Quick Start](#quick-start) example above, the extension
 [quart-session](https://github.com/kroketio/quart-session/) is leveraged to provide Quart a backend session 
 interface via Redis. This is strongly recommended as the default session storage is a client-side 
-cookie which is difficult to invalidate.
+cookie which is difficult to invalidate. For some OIDC features we need to invalidate sessions.
 
 ## Logout
 
@@ -144,11 +144,11 @@ via the Keycloak web-interface (or perhaps via another application). Quart would
 logout event in order to know the session does not exist anymore on the Keycloak side (and invalidate it on the 
 Quart side), as this logout request was not initiated by our Quart application.
 
-In the client settings, fill in `Backchannel logout URL` (replace `quart.tld` with your own) and 
+In the client settings, fill in `Backchannel logout URL` (replace `example.com` with your own) and 
 enable the toggle `Backchannel logout session required`. Note that your Quart application will have 
 to be reachable by Keycloak, as Keycloak will try to send a HTTP request to this URL upon user logout.
 
-![https://i.imgur.com/eZfRCbc.png](https://i.imgur.com/eZfRCbc.png)
+![https://i.imgur.com/6hZXHwt.png](https://i.imgur.com/6hZXHwt.png)
 
 We can pick up this logout request via a decorator:
 
@@ -193,10 +193,9 @@ the routes start to overlap.
 ### Using different IdPs
 
 Previously this extension was known as `quart-session-openid` and made an effort to support multiple 
-OpenID Providers (from different companies/projects) but it turns out that everyone has their own 
-interpretation of the OpenID spec, so IdPs tend to vary which causes breakage. Even between Keycloak 
-versions there are small (but breaking) changes - so it was decided to narrow the scope and focus on 
-modern versions of Keycloak.
+OpenID servers but it turns out that everyone has their own interpretation of the OpenID spec so 
+IdPs tended to vary which caused breakage. Even between Keycloak versions there are small (but breaking) 
+changes - so it was decided to narrow the scope, rebrand to `quart-keycloak` and focus on modern Keycloak versions.
 
 ### Will you support OIDC feature $x?
 
