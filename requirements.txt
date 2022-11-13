@@ -3,6 +3,7 @@ aiohttp
 aiofiles
 aioredis
 pyjwt
+quart-session>=1.0.6
 python-jose[cryptography]
-quart-session
 packaging
+pydantic

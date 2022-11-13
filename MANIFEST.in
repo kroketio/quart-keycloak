@@ -3,8 +3,8 @@ include CHANGELOG.md
 include README.md
 include setup.cfg
 include requirements.txt
-recursive-include quart_openid *.py
-recursive-include quart_openid *.md
+recursive-include quart_keycloak *.py
+recursive-include quart_keycloak *.md
 exclude .gitlab-ci.yml
 exclude examples
 exclude docs
