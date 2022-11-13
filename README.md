@@ -1,3 +1,5 @@
+**Warning: this project is deprecated and replaced by https://pypi.org/project/Quart-Keycloak/**
+
 # Quart-Session-OpenID
 
 Adds OpenID Connect support to your Quart application.

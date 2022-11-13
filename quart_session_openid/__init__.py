@@ -4,8 +4,13 @@
     :copyright: (c) 2021 by Sander.
     :license: BSD, see LICENSE for more details.
 """
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 
+
+from warnings import warn
+warn("""
+`quart-session-openid` is deprecated and replaced by https://github.com/kroketio/quart-keycloak 
+""".strip(), DeprecationWarning, stacklevel=2)
 
 DEFAULT_AUDIENCE = "account"  # Keycloak default
 
