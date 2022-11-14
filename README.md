@@ -87,7 +87,11 @@ This extension is known to work on the following IdPs:
 
 - Keycloak 12 till 19
 - Keycloak 10 (limited features)
+
+And (probably) also (but not officially supported):
+
 - Okta
+- Azure AD (OIDC)
 
 When running Keycloak 10 you'll need to enable 'legacy' mode by passing 
 the parameter `legacy=True` to the Keycloak constructor:
