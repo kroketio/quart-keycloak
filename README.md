@@ -83,18 +83,20 @@ app.run("localhost", port=2700, debug=True, use_reloader=False)
 
 ## Compatibility
 
-This extension is developed using Keycloak version 19. A lower version may still work 
-but is not guaranteed. Keycloak likes to change things in-between versions - which makes 
-it difficult to support everything.
+This extension is known to work on the following IdPs:
 
-If you are running the ancient Keycloak 10 or below, you should be running in 'legacy' mode else some 
-features will not work properly.  To enable legacy mode, pass parameter `legacy=True` to the Keycloak constructor:
+- Keycloak 12 till 19
+- Keycloak 10 (limited features)
+- Okta
+
+When running Keycloak 10 you'll need to enable 'legacy' mode by passing 
+the parameter `legacy=True` to the Keycloak constructor:
 
 ```python3
 keycloak = Keycloak(app, legacy=True, client_id=...)
 ```
 
-Note that the OpenID config URL changed along the way:
+Note that the OpenID configuration URL changed between the Keycloak versions:
 
 - Keycloak 10: `https://example.com/auth/realms/master/.well-known/openid-configuration`
 - Keycloak 19: `https://example.com/realms/master/.well-known/openid-configuration`
@@ -106,11 +108,36 @@ In the [Quick Start](#quick-start) example above, the extension
 interface via Redis. This is strongly recommended as the default session storage is a client-side 
 cookie which is difficult to invalidate. For some OIDC features we need to invalidate sessions.
 
+## Login
+
+Generate a login URL and redirect the user. 
+
+```python3
+from quart import url_for, redirect
+
+@app.route('/login')
+async def login():
+  login_url_keycloak = url_for(keycloak.endpoint_name_login)
+  return redirect(login_url_keycloak)
+```
+
+Use decorator `@keycloak.after_login()` to setup a session within Quart after the user logged in.
+
+```python3
+from quart import session, redirect, url_for
+from quart_keycloak import KeycloakAuthToken
+
+@keycloak.after_login()
+async def handle_user_login(auth_token: KeycloakAuthToken):
+    session['auth_token'] = auth_token
+    return redirect(url_for('some_other_place'))
+```
+
 ## Logout
 
- Simply generate a logout URL and redirect the user. You will need to provide `redirect_uri` to specify 
+Generate a logout URL and redirect the user. You will need to provide `redirect_uri` to specify 
 the return URL (optionally you may pass a `state` parameter). It makes sense to redirect the user back 
-to an URL that clears the session on the Quart side of things, for example `/after_logout`.
+to a URL that clears the session on the Quart side, for example `/after_logout`.
 
 In short:
 

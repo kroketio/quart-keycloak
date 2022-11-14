@@ -276,6 +276,10 @@ class Keycloak(object):
         else:
             url += f"&scope={scopes}"
 
+        # for Okta's IdP we'll inject some random value for state
+        self._state = uuid.uuid4().hex
+        url += f"&state={self._state}"
+
         self.app.logger.debug(f"login redirection to {url}")
         return redirect(url)
 
@@ -289,10 +293,10 @@ class Keycloak(object):
             self.app.logger.error(f"redirect error '{error}' {description}")
             return f"{error}, check logs", 500
 
-        for expect in ["code", "session_state"]:
-            if expect not in request.args:
-                msg = f"Missing '{expect}' argument on"
-                raise Exception(msg)
+        if "code" not in request.args:
+            raise Exception("missing arg 'code' in auth response")
+        if "session_state" not in request.args and "state" not in request.args:
+            raise Exception("missing arg 'session_state' or 'state' in auth response")
 
         # with the authorization code we can fetch an access token
         url = self._openid_configuration["token_endpoint"]
