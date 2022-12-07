@@ -50,7 +50,8 @@ class Keycloak(object):
                  validate_auth_token: bool = True,
                  legacy: bool = False,
                  audience: Union[str] = DEFAULT_AUDIENCE,
-                 key_rotation_interval: int = 3600) -> None:
+                 key_rotation_interval: int = 3600,
+                 trust_env: bool = False) -> None:
         """
         :param app: Quart app instance
         :param client_id: public identifier for apps, many OIDC providers
@@ -101,6 +102,8 @@ class Keycloak(object):
         self._openid_keys: dict = {}
         self._openid_keys_rotate: int = key_rotation_interval
         self._openid_keys_task: Optional[asyncio.Task] = None
+            
+        self.trust_env = trust_env
 
         self._cache = app.session_interface
 
@@ -415,7 +418,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                trust_env=self.trust_env) as session:
             async with session.post(url, data=data) as resp:
                 return resp
 
@@ -444,7 +448,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                trust_env=self.trust_env) as session:
             async with session.get(url) as resp:
                 self.app.logger.debug(f"Status: {resp.status}")
                 self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
@@ -467,7 +472,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                trust_env=self.trust_env) as session:
             async with session.post(url, data=data) as resp:
                 self.app.logger.debug(f"Status: {resp.status}")
                 self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
@@ -481,7 +487,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                trust_env=self.trust_env) as session:
             async with session.get(url) as resp:
                 if raise_status:
                     resp.raise_for_status()
@@ -495,7 +502,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                trust_env=self.trust_env) as session:
             _data = {"json": data} if json else {"data": data}
             async with session.post(url, **_data) as resp:
                 if raise_status:
