@@ -49,7 +49,8 @@ class Keycloak(object):
                  user_agent: str = "Quart-Keycloak",
                  validate_auth_token: bool = True,
                  legacy: bool = False,
-                 audience: Union[str] = DEFAULT_AUDIENCE,
+                 audience: str = DEFAULT_AUDIENCE,
+                 aiohttp_clientsession_opts: dict = None,
                  key_rotation_interval: int = 3600) -> None:
         """
         :param app: Quart app instance
@@ -69,6 +70,7 @@ class Keycloak(object):
         :param route_login: The login URL route for this Quart application. You can
             provide your own when you have multiple OpenID instances that would
             otherwise overlap, or simply prefer a customized name.
+        :param aiohttp_clientsession_opts: Optional parameters passed to aiohttp.ClientSession initialization.
         :param route_logout: The logout URL route, will redirect
             to `end_session_endpoint` which ends the session.
             - https://stackoverflow.com/a/66240470
@@ -112,6 +114,9 @@ class Keycloak(object):
         self._route_auth_uri: str = route_auth
 
         self._user_agent: str = user_agent
+        self._aiohttp_clientsession_opts: Optional[dict] = aiohttp_clientsession_opts
+        if self._aiohttp_clientsession_opts is None:
+            self._aiohttp_clientsession_opts = {}
         self._timeout_connect: int = timeout_connect
         self._timeout_read: int = timeout_read
 
@@ -415,7 +420,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                **self._aiohttp_clientsession_opts) as session:
             async with session.post(url, data=data) as resp:
                 return resp
 
@@ -444,7 +450,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                **self._aiohttp_clientsession_opts) as session:
             async with session.get(url) as resp:
                 self.app.logger.debug(f"Status: {resp.status}")
                 self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
@@ -467,7 +474,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                **self._aiohttp_clientsession_opts) as session:
             async with session.post(url, data=data) as resp:
                 self.app.logger.debug(f"Status: {resp.status}")
                 self.app.logger.debug(f"Content-type: {resp.headers.get('content-type')}")
@@ -481,7 +489,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                **self._aiohttp_clientsession_opts) as session:
             async with session.get(url) as resp:
                 if raise_status:
                     resp.raise_for_status()
@@ -495,7 +504,8 @@ class Keycloak(object):
         async with aiohttp.ClientSession(
                 headers=_headers,
                 conn_timeout=self._timeout_connect,
-                read_timeout=self._timeout_read) as session:
+                read_timeout=self._timeout_read,
+                **self._aiohttp_clientsession_opts) as session:
             _data = {"json": data} if json else {"data": data}
             async with session.post(url, **_data) as resp:
                 if raise_status:
