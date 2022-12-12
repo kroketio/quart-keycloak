@@ -11,6 +11,7 @@ Add [Keycloak](https://www.keycloak.org/) (OpenID Connect) to your Quart applica
   - [Handling logout 'events'](#handling-logout-events)
 - [FAQ](#faq)
   - [Multiple keycloaks](#multiple-keycloaks)
+  - [HTTP Proxy](#proxy)
   - [Using different IdPs](#using-different-idps)
   - [Will you support OIDC feature $x?](#will-you-support-oidc-feature-x)
   - [Common errors](#common-errors)
@@ -220,6 +221,17 @@ mapper that links Keycloak `sid`'s to Quart sessions.
 It is perfectly fine to use multiple Keycloak instances, just make sure to provide 
 custom route handlers for `route_login`, `route_auth`, `route_logout`, and `route_logout_request` else 
 the routes start to overlap.
+
+### HTTP Proxy
+
+Quart-Keycloak uses `aiohttp` which has [an option called 'trust_env'](https://docs.aiohttp.org/en/stable/client_reference.html). We can pass this `trust_env` option via the `aiohttp_clientsession_opts` parameter, e.g:
+
+
+```python3
+keycloak = Keycloak(app, aiohttp_clientsession_opts={'trust_env': True})
+```
+
+`aiohttp` will now listen to `HTTP_PROXY` and `HTTPS_PROXY` env. variables.
 
 ### Using different IdPs
 
