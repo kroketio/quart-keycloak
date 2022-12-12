@@ -11,7 +11,7 @@ Add [Keycloak](https://www.keycloak.org/) (OpenID Connect) to your Quart applica
   - [Handling logout 'events'](#handling-logout-events)
 - [FAQ](#faq)
   - [Multiple keycloaks](#multiple-keycloaks)
-  - [HTTP Proxy](#proxy)
+  - [HTTP Proxy](#http-proxy)
   - [Using different IdPs](#using-different-idps)
   - [Will you support OIDC feature $x?](#will-you-support-oidc-feature-x)
   - [Common errors](#common-errors)
