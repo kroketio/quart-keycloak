@@ -626,6 +626,23 @@ class KeycloakAuthToken:
     scope: List[str]
 
     @property
+    def sub(self) -> Optional[uuid.UUID]:
+        if self.access_token_d:
+            return uuid.UUID(self.access_token_d.get('sub'))
+
+    @property
+    def username(self) -> str:
+        return self.access_token_d.get('preferred_username')
+
+    @property
+    def email(self) -> str:
+        return self.access_token_d.get('email')
+
+    @property
+    def email_verified(self) -> bool:
+        return self.access_token_d.get('email_verified')
+
+    @property
     def access_token_d(self) -> dict:
         if self.access_token:
             return Keycloak.decode_token(self.access_token)
