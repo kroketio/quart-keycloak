@@ -13,7 +13,7 @@ INSTALL_REQUIRES = open("requirements.txt").read().splitlines()
 
 setup(
     name='Quart-Keycloak',
-    version='1.0.7',
+    version='1.0.8',
     url='https://github.com/kroketio/quart-keycloak',
     author='Kroket Ltd.',
     author_email='code@kroket.io',

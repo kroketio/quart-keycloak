@@ -48,6 +48,7 @@ class Keycloak(object):
                  route_logout_request: str = "/openid/logout_request",
                  user_agent: str = "Quart-Keycloak",
                  validate_auth_token: bool = True,
+                 check_nonce: bool = True,
                  legacy: bool = False,
                  audience: str = DEFAULT_AUDIENCE,
                  aiohttp_clientsession_opts: dict = None,
@@ -121,7 +122,7 @@ class Keycloak(object):
         self._timeout_read: int = timeout_read
 
         self._nonce_session_key = "_quart_keycloak_openid_nonce"
-        self._nonce: bool = True
+        self._nonce: bool = check_nonce
 
         self._fn_after_login = None
         self._fn_after_logout_request = None
